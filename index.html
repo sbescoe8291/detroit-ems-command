@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Detroit EMS | Fleet Command</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --void: #05070a; --abyss: #0a0d12; --deep: #0f1318; --surface: #161b22;
+            --elevated: #1c2128; --border: #262c36; --muted: #3d4450; --subtle: #545d6e;
+            --text-tertiary: #6e7a8a; --text-secondary: #8b949e; --text-primary: #c9d1d9; --text-bright: #e6edf3;
+            --available: #238636; --available-bg: rgba(35, 134, 54, 0.15);
+            --busy: #c9952a; --busy-bg: rgba(201, 149, 42, 0.15);
+            --critical: #da3633; --critical-bg: rgba(218, 54, 51, 0.15);
+            --ems-red: #c9353a; --ems-red-glow: rgba(201, 53, 58, 0.25);
+            --hart-amber: #c9952a; --hart-amber-glow: rgba(201, 149, 42, 0.25);
+            --hospital-teal: #2a9d8f; --hospital-teal-glow: rgba(42, 157, 143, 0.25);
+            --search-blue: #388bfd; --search-blue-glow: rgba(56, 139, 253, 0.25);
+            --glass-bg: rgba(22, 27, 34, 0.75); --glass-border: rgba(48, 54, 61, 0.8);
+            --space-xs: 4px; --space-sm: 8px; --space-md: 12px; --space-lg: 16px; --space-xl: 24px;
+            --text-xs: 10px; --text-sm: 11px; --text-base: 13px; --text-lg: 15px; --text-xl: 18px;
+            --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        html, body { height: 100%; width: 100%; overflow: hidden; background: var(--void); color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: var(--text-base); -webkit-font-smoothing: antialiased; }
+        #app { display: flex; flex-direction: column; height: 100%; position: relative; }
+        #map { flex: 1; width: 100%; background: var(--void); z-index: 1; }
+        .header { position: absolute; top: 0; left: 0; right: 0; z-index: 1000; padding: var(--space-md) var(--space-lg); background: linear-gradient(180deg, var(--abyss) 0%, var(--abyss) 60%, transparent 100%); }
+        .header-main { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-md); }
+        .brand { display: flex; align-items: center; gap: var(--space-sm); }
+        .brand-icon { width: 36px; height: 36px; background: linear-gradient(135deg, var(--ems-red) 0%, #9a2a2d 100%); display: flex; align-items: center; justify-content: center; border-radius: 8px; box-shadow: 0 0 20px var(--ems-red-glow); }
+        .brand-icon::before { content: '+'; font-size: 20px; font-weight: 800; color: white; }
+        .brand-text { font-size: var(--text-lg); font-weight: 700; color: var(--text-bright); }
+        .brand-text span { color: var(--text-tertiary); font-weight: 500; }
+        .header-status { display: flex; align-items: center; gap: var(--space-lg); }
+        .clock { font-family: 'IBM Plex Mono', monospace; font-size: var(--text-lg); font-weight: 600; color: var(--text-secondary); }
+        .status-pill { display: flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--available-bg); border: 1px solid rgba(35, 134, 54, 0.3); border-radius: 20px; }
+        .status-dot { width: 6px; height: 6px; background: var(--available); border-radius: 50%; box-shadow: 0 0 8px var(--available); animation: pulse-glow 2s ease-in-out infinite; }
+        @keyframes pulse-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .status-text { font-size: var(--text-xs); font-weight: 600; color: var(--available); text-transform: uppercase; }
+        .search-container { position: relative; }
+        .search-bar { display: flex; align-items: stretch; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: all 0.2s var(--ease-out); }
+        .search-bar:focus-within { border-color: var(--search-blue); box-shadow: 0 0 0 3px var(--search-blue-glow); }
+        .search-icon { display: flex; align-items: center; justify-content: center; padding: 0 var(--space-md); color: var(--subtle); }
+        .search-input { flex: 1; background: transparent; border: none; outline: none; color: var(--text-bright); font-family: inherit; font-size: 16px; padding: var(--space-md) 0; }
+        .search-input::placeholder { color: var(--subtle); }
+        .search-btn { background: var(--ems-red); border: none; color: white; padding: 0 var(--space-lg); font-size: var(--text-sm); font-weight: 700; text-transform: uppercase; cursor: pointer; transition: all 0.15s var(--ease-out); }
+        .search-btn:active { transform: scale(0.96); background: #a82d31; }
+        .autocomplete { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; max-height: 200px; overflow-y: auto; z-index: 100; opacity: 0; visibility: hidden; transform: translateY(-8px); transition: all 0.2s var(--ease-out); box-shadow: 0 16px 48px rgba(0,0,0,0.4); }
+        .autocomplete.show { opacity: 1; visibility: visible; transform: translateY(0); }
+        .ac-item { padding: var(--space-md) var(--space-lg); cursor: pointer; border-bottom: 1px solid var(--border); }
+        .ac-item:last-child { border-bottom: none; }
+        .ac-item:active { background: var(--elevated); }
+        .ac-item-main { font-size: var(--text-base); font-weight: 500; color: var(--text-primary); margin-bottom: 2px; }
+        .ac-item-sub { font-size: var(--text-sm); color: var(--text-tertiary); }
+        .leaflet-control-zoom, .leaflet-control-attribution { display: none !important; }
+        .marker { display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 10px; border: 2px solid white; transition: transform 0.15s var(--ease-spring); cursor: pointer; }
+        .marker:hover { transform: scale(1.2); z-index: 1000 !important; }
+        .marker-medic { background: var(--ems-red); color: white; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.4), 0 0 12px var(--ems-red-glow); }
+        .marker-hart { background: var(--hart-amber); color: var(--void); border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.4), 0 0 12px var(--hart-amber-glow); }
+        .marker-hospital { background: var(--hospital-teal); color: white; border-radius: 6px; font-size: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.4), 0 0 12px var(--hospital-teal-glow); }
+        .marker-search { background: var(--search-blue); color: white; border-radius: 50%; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.4), 0 0 16px var(--search-blue-glow); }
+        .leaflet-popup-content-wrapper { background: var(--surface); color: var(--text-primary); border-radius: 12px; padding: 0; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border: 1px solid var(--border); overflow: hidden; }
+        .leaflet-popup-tip { background: var(--border); }
+        .leaflet-popup-content { margin: 0 !important; width: 260px !important; }
+        .leaflet-popup-close-button { color: var(--subtle) !important; font-size: 20px !important; padding: 10px !important; }
+        .popup-header { padding: var(--space-lg); }
+        .popup-header.medic { background: linear-gradient(135deg, rgba(201,53,58,0.15) 0%, transparent 100%); border-left: 3px solid var(--ems-red); }
+        .popup-header.hart { background: linear-gradient(135deg, rgba(201,149,42,0.15) 0%, transparent 100%); border-left: 3px solid var(--hart-amber); }
+        .popup-header.hospital { background: linear-gradient(135deg, rgba(42,157,143,0.15) 0%, transparent 100%); border-left: 3px solid var(--hospital-teal); }
+        .popup-id { font-family: 'IBM Plex Mono', monospace; font-size: var(--text-xl); font-weight: 700; color: var(--text-bright); }
+        .popup-meta { font-size: var(--text-sm); color: var(--text-tertiary); margin-top: 2px; }
+        .popup-status { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: var(--text-xs); font-weight: 600; }
+        .popup-status.available { background: var(--available-bg); color: var(--available); }
+        .popup-status.busy { background: var(--busy-bg); color: var(--busy); }
+        .popup-body { padding: var(--space-lg); }
+        .popup-row { display: flex; justify-content: space-between; padding: var(--space-sm) 0; border-bottom: 1px solid var(--border); }
+        .popup-row:last-child { border-bottom: none; }
+        .popup-label { font-size: var(--text-xs); font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; }
+        .popup-value { font-size: var(--text-base); color: var(--text-primary); }
+        .cap { font-size: 9px; font-weight: 700; padding: 3px 6px; border-radius: 4px; text-transform: uppercase; display: inline-block; margin: 2px; }
+        .cap.stemi { background: rgba(218,54,51,0.2); color: #f97583; }
+        .cap.stroke { background: rgba(136,87,183,0.2); color: #c4a5de; }
+        .cap.trauma { background: rgba(201,149,42,0.2); color: #ffdf5d; }
+        .cap.burn { background: rgba(194,88,45,0.2); color: #ffa657; }
+        .cap.peds { background: rgba(35,134,54,0.2); color: #7ee787; }
+        .cap.lvad { background: rgba(56,139,253,0.2); color: #79c0ff; }
+        .cap.ob { background: rgba(188,67,143,0.2); color: #f692ce; }
+        .map-ctrl { position: absolute; z-index: 500; width: 44px; height: 44px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary); transition: all 0.15s var(--ease-out); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        .map-ctrl:active { background: var(--elevated); color: var(--text-bright); transform: scale(0.95); }
+        .ctrl-home { bottom: 170px; right: var(--space-lg); }
+        .ctrl-locate { bottom: 170px; left: var(--space-lg); }
+        .legend { position: absolute; bottom: 168px; left: 50%; transform: translateX(-50%); display: flex; gap: var(--space-md); padding: var(--space-sm) var(--space-md); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; z-index: 500; }
+        .legend-item { display: flex; align-items: center; gap: 5px; font-size: var(--text-xs); color: var(--text-secondary); }
+        .legend-dot { width: 10px; height: 10px; border: 1.5px solid white; }
+        .legend-dot.medic { background: var(--ems-red); border-radius: 2px; }
+        .legend-dot.hart { background: var(--hart-amber); border-radius: 50%; }
+        .legend-dot.hospital { background: var(--hospital-teal); border-radius: 3px; }
+        .sheet { position: fixed; bottom: 0; left: 0; right: 0; background: var(--glass-bg); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border-top: 1px solid var(--glass-border); border-radius: 20px 20px 0 0; transform: translateY(calc(100% - 156px)); transition: transform 0.35s var(--ease-out); z-index: 1000; max-height: 75vh; }
+        .sheet.expanded { transform: translateY(0); }
+        .sheet-grip { height: 28px; display: flex; align-items: center; justify-content: center; cursor: grab; }
+        .sheet-grip-bar { width: 36px; height: 4px; background: var(--muted); border-radius: 2px; }
+        .tabs { display: flex; padding: 0 var(--space-lg); border-bottom: 1px solid var(--border); }
+        .tab { flex: 1; padding: var(--space-md) var(--space-sm); text-align: center; font-size: var(--text-sm); font-weight: 600; color: var(--text-tertiary); cursor: pointer; position: relative; }
+        .tab::after { content: ''; position: absolute; bottom: -1px; left: var(--space-lg); right: var(--space-lg); height: 2px; background: var(--ems-red); transform: scaleX(0); transition: transform 0.2s var(--ease-out); }
+        .tab.active { color: var(--text-bright); }
+        .tab.active::after { transform: scaleX(1); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border-bottom: 1px solid var(--border); }
+        .stat { background: var(--abyss); padding: var(--space-md) var(--space-sm); text-align: center; }
+        .stat-value { font-family: 'IBM Plex Mono', monospace; font-size: var(--text-xl); font-weight: 700; line-height: 1; margin-bottom: 2px; }
+        .stat-label { font-size: 9px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; }
+        .filters { display: flex; gap: 6px; padding: var(--space-md) var(--space-lg); overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border); }
+        .filters::-webkit-scrollbar { display: none; }
+        .filter { flex-shrink: 0; padding: 6px 12px; font-size: var(--text-sm); font-weight: 600; color: var(--text-tertiary); background: var(--deep); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: all 0.15s var(--ease-out); }
+        .filter:active { transform: scale(0.95); }
+        .filter.on { background: var(--ems-red); border-color: var(--ems-red); color: white; }
+        .filter.on-teal { background: var(--hospital-teal); border-color: var(--hospital-teal); color: white; }
+        .list { max-height: calc(75vh - 220px); overflow-y: auto; }
+        .list-item { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-md) var(--space-lg); border-bottom: 1px solid var(--border); cursor: pointer; }
+        .list-item:active { background: var(--elevated); }
+        .list-badge { width: 40px; height: 28px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: var(--text-sm); flex-shrink: 0; border-radius: 4px; }
+        .list-badge.medic { background: var(--ems-red); color: white; }
+        .list-badge.hart { background: var(--hart-amber); color: var(--void); border-radius: 14px; }
+        .list-badge.hospital { background: var(--hospital-teal); color: white; font-size: 9px; }
+        .list-info { flex: 1; min-width: 0; }
+        .list-title { font-size: var(--text-base); font-weight: 600; color: var(--text-bright); display: flex; align-items: center; gap: var(--space-sm); }
+        .list-status { width: 6px; height: 6px; border-radius: 50%; }
+        .list-status.available { background: var(--available); box-shadow: 0 0 6px var(--available); }
+        .list-status.busy { background: var(--busy); box-shadow: 0 0 6px var(--busy); }
+        .list-sub { font-size: var(--text-sm); color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(5, 7, 10, 0.85); backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: var(--space-lg); opacity: 0; visibility: hidden; transition: all 0.25s var(--ease-out); }
+        .modal-overlay.show { opacity: 1; visibility: visible; }
+        .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; max-width: 360px; width: 100%; transform: translateY(16px) scale(0.98); transition: transform 0.25s var(--ease-out); box-shadow: 0 24px 80px rgba(0,0,0,0.5); overflow: hidden; }
+        .modal-overlay.show .modal { transform: translateY(0) scale(1); }
+        .modal-header { padding: var(--space-xl); text-align: center; border-bottom: 1px solid var(--border); }
+        .modal-icon { width: 52px; height: 52px; background: linear-gradient(135deg, var(--search-blue) 0%, #1f6feb 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto var(--space-md); }
+        .modal-title { font-size: var(--text-lg); font-weight: 700; color: var(--text-bright); }
+        .modal-subtitle { font-size: var(--text-sm); color: var(--text-tertiary); }
+        .modal-tabs { display: flex; border-bottom: 1px solid var(--border); }
+        .modal-tab { flex: 1; padding: var(--space-md); text-align: center; font-size: var(--text-sm); font-weight: 600; color: var(--text-tertiary); cursor: pointer; border-bottom: 2px solid transparent; }
+        .modal-tab.active { color: var(--text-bright); border-bottom-color: var(--ems-red); }
+        .modal-body { max-height: 300px; overflow-y: auto; }
+        .modal-section { display: none; }
+        .modal-section.active { display: block; }
+        .result-item { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-md) var(--space-lg); border-bottom: 1px solid var(--border); cursor: pointer; }
+        .result-item:active { background: var(--elevated); }
+        .result-rank { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700; background: var(--muted); color: var(--text-secondary); border-radius: 4px; }
+        .result-rank.first { background: var(--available); color: white; }
+        .result-badge { width: 32px; height: 22px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 10px; border-radius: 4px; }
+        .result-info { flex: 1; min-width: 0; }
+        .result-name { font-size: var(--text-base); font-weight: 600; color: var(--text-bright); }
+        .result-sub { font-size: var(--text-sm); color: var(--text-tertiary); }
+        .result-dist { text-align: right; }
+        .result-miles { font-family: 'IBM Plex Mono', monospace; font-size: var(--text-base); font-weight: 700; color: var(--hart-amber); }
+        .result-eta { font-size: 9px; color: var(--text-tertiary); text-transform: uppercase; }
+        .modal-footer { padding: var(--space-lg); border-top: 1px solid var(--border); }
+        .modal-btn { width: 100%; padding: var(--space-md); background: var(--ems-red); border: none; border-radius: 8px; color: white; font-size: var(--text-base); font-weight: 600; cursor: pointer; }
+        .modal-btn:active { transform: scale(0.98); background: #a82d31; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <div class="header-main">
+                <div class="brand"><div class="brand-icon"></div><div class="brand-text">Detroit EMS <span>Command</span></div></div>
+                <div class="header-status"><div class="clock" id="clock">--:--</div><div class="status-pill"><div class="status-dot"></div><span class="status-text">Live</span></div></div>
+            </div>
+            <div class="search-container">
+                <div class="search-bar">
+                    <div class="search-icon"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></div>
+                    <input type="text" class="search-input" id="searchInput" placeholder="Address or intersection..." autocomplete="off">
+                    <button class="search-btn" id="searchBtn">Find</button>
+                </div>
+                <div class="autocomplete" id="autocomplete"></div>
+            </div>
+        </div>
+        <div id="map"></div>
+        <div class="legend"><div class="legend-item"><div class="legend-dot medic"></div>DFD</div><div class="legend-item"><div class="legend-dot hart"></div>HART</div><div class="legend-item"><div class="legend-dot hospital"></div>Hosp</div></div>
+        <button class="map-ctrl ctrl-home" id="ctrlHome"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg></button>
+        <button class="map-ctrl ctrl-locate" id="ctrlLocate"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg></button>
+        <div class="sheet" id="sheet">
+            <div class="sheet-grip" id="sheetGrip"><div class="sheet-grip-bar"></div></div>
+            <div class="tabs"><div class="tab active" data-tab="units">Units</div><div class="tab" data-tab="hospitals">Hospitals</div></div>
+            <div class="tab-content active" id="tab-units">
+                <div class="stats">
+                    <div class="stat"><div class="stat-value" style="color: var(--text-bright);" id="statTotal">35</div><div class="stat-label">Total</div></div>
+                    <div class="stat"><div class="stat-value" style="color: var(--available);" id="statAvail">28</div><div class="stat-label">Available</div></div>
+                    <div class="stat"><div class="stat-value" style="color: var(--ems-red);" id="statMedic">32</div><div class="stat-label">DFD</div></div>
+                    <div class="stat"><div class="stat-value" style="color: var(--hart-amber);" id="statHart">3</div><div class="stat-label">HART</div></div>
+                </div>
+                <div class="filters" id="filterUnits"><div class="filter on" data-f="ALL">All</div><div class="filter" data-f="AVAIL">Available</div><div class="filter" data-f="HART">HART</div><div class="filter" data-f="B1">B-1</div><div class="filter" data-f="B2">B-2</div><div class="filter" data-f="B3">B-3</div><div class="filter" data-f="B4">B-4</div><div class="filter" data-f="B5">B-5</div><div class="filter" data-f="B6">B-6</div><div class="filter" data-f="B8">B-8</div></div>
+                <div class="list" id="unitList"></div>
+            </div>
+            <div class="tab-content" id="tab-hospitals">
+                <div class="stats">
+                    <div class="stat"><div class="stat-value" style="color: var(--hospital-teal);">12</div><div class="stat-label">Total</div></div>
+                    <div class="stat"><div class="stat-value" style="color: var(--available);">10</div><div class="stat-label">Open</div></div>
+                    <div class="stat"><div class="stat-value" style="color: var(--ems-red);">4</div><div class="stat-label">Trauma</div></div>
+                    <div class="stat"><div class="stat-value" style="color: var(--busy);">2</div><div class="stat-label">Divert</div></div>
+                </div>
+                <div class="filters" id="filterHosp"><div class="filter on-teal" data-f="ALL">All</div><div class="filter" data-f="STEMI">STEMI</div><div class="filter" data-f="STROKE">Stroke</div><div class="filter" data-f="TRAUMA">Trauma</div><div class="filter" data-f="BURN">Burn</div><div class="filter" data-f="PEDS">Peds</div><div class="filter" data-f="LVAD">LVAD</div><div class="filter" data-f="OB">OB</div></div>
+                <div class="list" id="hospList"></div>
+            </div>
+        </div>
+        <div class="modal-overlay" id="modal">
+            <div class="modal">
+                <div class="modal-header">
+                    <div class="modal-icon"><svg width="26" height="26" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
+                    <div class="modal-title">Nearest Resources</div>
+                    <div class="modal-subtitle" id="modalAddr">Searching...</div>
+                </div>
+                <div class="modal-tabs"><div class="modal-tab active" data-mt="units">Units</div><div class="modal-tab" data-mt="hospitals">Hospitals</div></div>
+                <div class="modal-body">
+                    <div class="modal-section active" id="modalUnits"></div>
+                    <div class="modal-section" id="modalHospitals"></div>
+                </div>
+                <div class="modal-footer"><button class="modal-btn" id="modalClose">Close</button></div>
+            </div>
+        </div>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const STATUSES = ['available', 'available', 'available', 'available', 'busy'];
+        const FLEET = [
+            { id: "H52", type: "HART", addr: "Moross & E Warren", lat: 42.4132, lng: -82.9355, bat: "B6" },
+            { id: "H53", type: "HART", addr: "W Warren & Trumbull", lat: 42.3535, lng: -83.0785, bat: "B1" },
+            { id: "H54", type: "HART", addr: "Michigan & Martin", lat: 42.3365, lng: -83.1315, bat: "B4" },
+            { id: "M6", type: "MEDIC", addr: "433 W Alexandrine", lat: 42.3501, lng: -83.0632, bat: "B1" },
+            { id: "M7", type: "MEDIC", addr: "1697 W Grand Blvd", lat: 42.3482, lng: -83.1112, bat: "B1" },
+            { id: "M8", type: "MEDIC", addr: "3050 Russell St", lat: 42.3485, lng: -83.0421, bat: "B1" },
+            { id: "M17", type: "MEDIC", addr: "4215 W Warren", lat: 42.3496, lng: -83.0788, bat: "B1" },
+            { id: "M21", type: "MEDIC", addr: "3737 E Lafayette", lat: 42.3481, lng: -83.0131, bat: "B2" },
+            { id: "M29", type: "MEDIC", addr: "1901 W Lafayette", lat: 42.3292, lng: -83.0681, bat: "B2" },
+            { id: "M30", type: "MEDIC", addr: "535 Brush St", lat: 42.3371, lng: -83.0445, bat: "B2" },
+            { id: "M15", type: "MEDIC", addr: "12985 Houston Whittier", lat: 42.4211, lng: -82.9861, bat: "B3" },
+            { id: "M16", type: "MEDIC", addr: "18601 Ryan Rd", lat: 42.4301, lng: -83.0631, bat: "B3" },
+            { id: "M24", type: "MEDIC", addr: "10801 Whittier", lat: 42.4081, lng: -82.9611, bat: "B3" },
+            { id: "M28", type: "MEDIC", addr: "19701 Hoover St", lat: 42.4401, lng: -82.9972, bat: "B3" },
+            { id: "M5", type: "MEDIC", addr: "18140 Joy Rd", lat: 42.3582, lng: -83.2173, bat: "B4" },
+            { id: "M9", type: "MEDIC", addr: "2820 Central St", lat: 42.3182, lng: -83.1281, bat: "B4" },
+            { id: "M11", type: "MEDIC", addr: "2300 S Fort St", lat: 42.2732, lng: -83.1591, bat: "B4" },
+            { id: "M19", type: "MEDIC", addr: "4700 W Fort St", lat: 42.3111, lng: -83.0931, bat: "B4" },
+            { id: "M31", type: "MEDIC", addr: "5743 Vernor Hwy", lat: 42.3151, lng: -83.1151, bat: "B4" },
+            { id: "M1", type: "MEDIC", addr: "8700 14th St", lat: 42.3722, lng: -83.1001, bat: "B5" },
+            { id: "M2", type: "MEDIC", addr: "6324 W Chicago", lat: 42.3675, lng: -83.1392, bat: "B5" },
+            { id: "M10", type: "MEDIC", addr: "13939 Dexter Ave", lat: 42.3931, lng: -83.1341, bat: "B5" },
+            { id: "M20", type: "MEDIC", addr: "111 Kenilworth", lat: 42.3851, lng: -83.0811, bat: "B5" },
+            { id: "M12", type: "MEDIC", addr: "2200 Crane St", lat: 42.3651, lng: -82.9961, bat: "B6" },
+            { id: "M13", type: "MEDIC", addr: "10700 Shoemaker", lat: 42.3882, lng: -83.0031, bat: "B6" },
+            { id: "M14", type: "MEDIC", addr: "5000 Rohns St", lat: 42.3801, lng: -83.0032, bat: "B6" },
+            { id: "M23", type: "MEDIC", addr: "11740 E Jefferson", lat: 42.3682, lng: -82.9671, bat: "B6" },
+            { id: "M52", type: "MEDIC", addr: "Moross & E Warren", lat: 42.4136, lng: -82.9359, bat: "B6" },
+            { id: "M3", type: "MEDIC", addr: "16543 Meyers Rd", lat: 42.4131, lng: -83.1702, bat: "B8" },
+            { id: "M4", type: "MEDIC", addr: "16825 Trinity St", lat: 42.4134, lng: -83.2491, bat: "B8" },
+            { id: "M18", type: "MEDIC", addr: "18236 Livernois", lat: 42.4251, lng: -83.1411, bat: "B8" },
+            { id: "M22", type: "MEDIC", addr: "17800 Curtis St", lat: 42.4241, lng: -83.2181, bat: "B8" },
+        ].map(u => ({ ...u, status: STATUSES[Math.floor(Math.random() * STATUSES.length)] }));
+
+        const HOSPITALS = [
+            { id: "DRH", name: "Detroit Receiving Hospital", short: "Receiving", addr: "4201 St Antoine St", lat: 42.3567, lng: -83.0519, caps: ["STEMI","STROKE","TRAUMA","BURN","PEDS"], divert: false },
+            { id: "HFH", name: "Henry Ford Hospital", short: "Henry Ford", addr: "2799 W Grand Blvd", lat: 42.3683, lng: -83.0857, caps: ["STEMI","STROKE","TRAUMA","BURN","PEDS","LVAD","OB"], divert: false },
+            { id: "SGH", name: "Sinai-Grace Hospital", short: "Sinai-Grace", addr: "6071 W Outer Dr", lat: 42.3889, lng: -83.1652, caps: ["STEMI","STROKE","TRAUMA","PEDS","OB"], divert: true },
+            { id: "SJH", name: "Ascension St. John Hospital", short: "St. John", addr: "22101 Moross Rd", lat: 42.4267, lng: -82.9128, caps: ["STEMI","STROKE","TRAUMA","PEDS","OB"], divert: false },
+            { id: "CHM", name: "Children's Hospital of Michigan", short: "Children's", addr: "3901 Beaubien St", lat: 42.3565, lng: -83.0536, caps: ["PEDS","BURN"], divert: false },
+            { id: "CGP", name: "Corewell Health Grosse Pointe", short: "Corewell GP", addr: "468 Cadieux Rd", lat: 42.3866, lng: -82.9133, caps: ["STEMI","STROKE","PEDS","OB"], divert: false },
+            { id: "CDB", name: "Corewell Health Dearborn", short: "Corewell DB", addr: "18101 Oakwood Blvd", lat: 42.3058, lng: -83.2357, caps: ["STEMI","STROKE","TRAUMA","PEDS","LVAD","OB"], divert: true },
+            { id: "HHU", name: "Harper/Hutzel University Hospital", short: "Harper/Hutzel", addr: "3990 John R St", lat: 42.3558, lng: -83.0556, caps: ["OB"], divert: false },
+        ];
+
+        let map, unitLayer, hospLayer, searchPin;
+        const CENTER = [42.365, -83.08];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const update = () => document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            update(); setInterval(update, 1000);
+
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView(CENTER, 11);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 18 }).addTo(map);
+            unitLayer = L.layerGroup().addTo(map);
+            hospLayer = L.layerGroup().addTo(map);
+
+            FLEET.forEach(u => {
+                const cls = u.type === 'HART' ? 'marker marker-hart' : 'marker marker-medic';
+                const icon = L.divIcon({ className: cls, html: u.id, iconSize: [36, 24] });
+                const m = L.marker([u.lat, u.lng], { icon }).addTo(unitLayer);
+                m.bindPopup(`<div class="popup-header ${u.type.toLowerCase()}"><div class="popup-id">${u.id}</div><div class="popup-meta"><span class="popup-status ${u.status}">${u.status}</span> · ${u.bat}</div></div><div class="popup-body"><div class="popup-row"><span class="popup-label">Location</span><span class="popup-value">${u.addr}</span></div></div>`);
+            });
+
+            HOSPITALS.forEach(h => {
+                const icon = L.divIcon({ className: 'marker marker-hospital', html: h.id, iconSize: [36, 24] });
+                const m = L.marker([h.lat, h.lng], { icon }).addTo(hospLayer);
+                const caps = h.caps.map(c => `<span class="cap ${c.toLowerCase()}">${c}</span>`).join('');
+                m.bindPopup(`<div class="popup-header hospital"><div class="popup-id">${h.short}</div><div class="popup-meta">${h.divert ? '<span class="popup-status busy">Divert</span>' : '<span class="popup-status available">Open</span>'}</div></div><div class="popup-body"><div class="popup-row"><span class="popup-label">Address</span><span class="popup-value">${h.addr}</span></div><div class="popup-row"><span class="popup-label">Capabilities</span><div>${caps}</div></div></div>`);
+            });
+
+            renderList();
+            map.on('click', e => findNearest(e.latlng.lat, e.latlng.lng));
+
+            document.getElementById('searchBtn').addEventListener('click', doSearch);
+            document.getElementById('searchInput').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+            document.getElementById('ctrlHome').addEventListener('click', () => map.setView(CENTER, 11));
+            document.getElementById('ctrlLocate').addEventListener('click', () => navigator.geolocation?.getCurrentPosition(p => map.setView([p.coords.latitude, p.coords.longitude], 14)));
+            document.getElementById('sheetGrip').addEventListener('click', () => document.getElementById('sheet').classList.toggle('expanded'));
+            document.querySelectorAll('.tabs .tab').forEach(t => t.addEventListener('click', () => {
+                document.querySelectorAll('.tabs .tab').forEach(x => x.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(x => x.classList.remove('active'));
+                t.classList.add('active');
+                document.getElementById('tab-' + t.dataset.tab).classList.add('active');
+            }));
+            document.querySelectorAll('.modal-tab').forEach(t => t.addEventListener('click', () => {
+                document.querySelectorAll('.modal-tab').forEach(x => x.classList.remove('active'));
+                document.querySelectorAll('.modal-section').forEach(x => x.classList.remove('active'));
+                t.classList.add('active');
+                document.getElementById('modal' + (t.dataset.mt === 'units' ? 'Units' : 'Hospitals')).classList.add('active');
+            }));
+            document.getElementById('modalClose').addEventListener('click', () => document.getElementById('modal').classList.remove('show'));
+            document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') document.getElementById('modal').classList.remove('show'); });
+        });
+
+        function renderList() {
+            document.getElementById('unitList').innerHTML = FLEET.map(u => `<div class="list-item" onclick="map.setView([${u.lat},${u.lng}],14)"><div class="list-badge ${u.type.toLowerCase()}">${u.id}</div><div class="list-info"><div class="list-title"><span class="list-status ${u.status}"></span>${u.id}</div><div class="list-sub">${u.addr} · ${u.bat}</div></div></div>`).join('');
+            document.getElementById('hospList').innerHTML = HOSPITALS.map(h => `<div class="list-item" onclick="map.setView([${h.lat},${h.lng}],14)"><div class="list-badge hospital">${h.id}</div><div class="list-info"><div class="list-title"><span class="list-status ${h.divert ? 'busy' : 'available'}"></span>${h.short}</div><div class="list-sub">${h.addr}</div></div></div>`).join('');
+        }
+
+        async function doSearch() {
+            const q = document.getElementById('searchInput').value.trim();
+            if (!q) return;
+            const query = q.toLowerCase().includes('detroit') ? q : `${q}, Detroit, MI`;
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+            const data = await res.json();
+            if (data.length) findNearest(parseFloat(data[0].lat), parseFloat(data[0].lon), data[0].display_name.split(',')[0]);
+        }
+
+        function findNearest(lat, lng, addr = 'Selected location') {
+            if (searchPin) map.removeLayer(searchPin);
+            const icon = L.divIcon({ className: 'marker marker-search', html: '📍', iconSize: [32, 32] });
+            searchPin = L.marker([lat, lng], { icon }).addTo(map);
+            map.setView([lat, lng], 13);
+
+            const dist = (a, b) => Math.sqrt(Math.pow(a.lat - b.lat, 2) + Math.pow(a.lng - b.lng, 2)) * 69;
+            const units = FLEET.filter(u => u.status === 'available').map(u => ({ ...u, d: dist(u, { lat, lng }) })).sort((a, b) => a.d - b.d).slice(0, 5);
+            const hosps = HOSPITALS.filter(h => !h.divert).map(h => ({ ...h, d: dist(h, { lat, lng }) })).sort((a, b) => a.d - b.d).slice(0, 5);
+
+            document.getElementById('modalAddr').textContent = addr;
+            document.getElementById('modalUnits').innerHTML = units.map((u, i) => `<div class="result-item" onclick="map.setView([${u.lat},${u.lng}],14);document.getElementById('modal').classList.remove('show')"><div class="result-rank ${i === 0 ? 'first' : ''}">${i + 1}</div><div class="result-badge ${u.type.toLowerCase()}">${u.id}</div><div class="result-info"><div class="result-name">${u.id}</div><div class="result-sub">${u.addr}</div></div><div class="result-dist"><div class="result-miles">${u.d.toFixed(1)} mi</div><div class="result-eta">~${Math.ceil(u.d * 2)} min</div></div></div>`).join('') || '<div style="padding:20px;text-align:center;color:var(--text-tertiary)">No available units</div>';
+            document.getElementById('modalHospitals').innerHTML = hosps.map((h, i) => `<div class="result-item" onclick="map.setView([${h.lat},${h.lng}],14);document.getElementById('modal').classList.remove('show')"><div class="result-rank ${i === 0 ? 'first' : ''}">${i + 1}</div><div class="result-badge hospital">${h.id}</div><div class="result-info"><div class="result-name">${h.short}</div><div class="result-sub">${h.caps.slice(0,3).join(', ')}</div></div><div class="result-dist"><div class="result-miles">${h.d.toFixed(1)} mi</div><div class="result-eta">~${Math.ceil(h.d * 2.5)} min</div></div></div>`).join('');
+            document.getElementById('modal').classList.add('show');
+        }
+    </script>
+</body>
+</html>
